@@ -1,10 +1,8 @@
 from StringIO import StringIO
 import re
 import os
-import posixpath
 import urlparse
 import hmac
-import itertools
 from hashlib import sha1
 from time import time
 from datetime import datetime
@@ -13,6 +11,8 @@ from django.core.files import File
 from django.core.files.storage import Storage
 from django.core.exceptions import ImproperlyConfigured
 from django.conf import settings
+from django.utils.encoding import force_text
+
 
 try:
     import swiftclient
@@ -38,6 +38,7 @@ class SwiftStorage(Storage):
     temp_url_key = setting('SWIFT_TEMP_URL_KEY')
     temp_url_duration = setting('SWIFT_TEMP_URL_DURATION', 30*60)
     auth_token_duration = setting('SWIFT_AUTH_TOKEN_DURATION', 60*60*23)
+    file_overwrite = setting('SWIFT_FILE_OVERWRITE', True)
     _token_creation_time = 0
     _token = ''
 
@@ -165,23 +166,12 @@ class SwiftStorage(Storage):
         return re.sub(r'(?u)[^-_\w./]', '', s)
 
     def get_available_name(self, name):
-        """
-        Returns a filename that's free on the target storage system, and
-        available for new content to be written to.
-        """
-        dir_name, file_name = os.path.split(name)
-        file_root, file_ext = os.path.splitext(file_name)
-        # If the filename already exists, add an underscore and a number
-        # (before the file extension, if one exists) to the filename until the
-        # generated filename doesn't exist.
-        count = itertools.count(1)
-        while self.exists(name):
-            # file_ext includes the dot.
-            name = posixpath.join(dir_name, "%s_%s%s" % (file_root,
-                                                         next(count),
-                                                         file_ext))
+        """ Overwrite existing file with the same name. """
+        if self.file_overwrite:
+            name = force_text(name.replace('\\', '/'))
+            return name
 
-        return name
+        return super(SwiftStorage, self).get_available_name(name)
 
     def size(self, name):
         return int(self.get_headers(name)['content-length'])
